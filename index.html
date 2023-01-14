@@ -1,7 +1,18 @@
-<!DOCTYPE html>
+<?
+	const {
+		importHead,
+	}=globals.functions;
+?><!DOCTYPE html>
 <html>
 <head>
-	<?=globals.tmp_head("Spotify API",input)?>
+<?=importHead({
+	input,
+	title:"Spotify API",
+	css:[
+		"/css/main.css",
+		"/css/dynamic.css?imports=green,styledBTN*,displayFLEX,flex,topRight",
+	],
+})?>
 	<style>
 		@media(max-width: 700px){
 			body{margin-top: 50px;}
@@ -382,7 +393,7 @@ function DataExist(){
 	actionMenu("getPlaylists");
 	interval_songUpdate=setInterval(()=>{actionMenu('getSongs');},5000);
 	GetId("div_inputData").className="hidden";
-	GetId("div_crontrols").className="visible";
+	GetId("div_crontrols").className="";
 }
 function timeify(ms){
 	const numify=(num)=>{return String(num).padStart(2,"0")};
