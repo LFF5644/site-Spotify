@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<?=globals.tmp_head("Spotify API",input)?>
+	<style>
+		@media(max-width: 700px){
+			body{margin-top: 50px;}
+		}
+	</style>
+</head>
+<body><center>
+<h1><?=globals.tmp_nameAsA()?> Spotify API</h1>
+<p>Hier kann jeder sehen was ich (<?=globals.tmp_nameAsA()?>) höre</p>
+
+<div id="div_inputData">
+	<p><label>Client ID: <input id="input_clientId" type="text"/></label></p>
+	<p><label>Client Secret: <input id="input_clientSecret" type="text"/></label></p>
+	<button class="styledBTN" onclick="Save()">SAVE & CONFIRM!</button>
+</div>
+<div id="div_crontrols" class="hidden">
+	<p>Gerät: 
+		<select id="select_devices">
+			<option id="tmp0">Bitte Warte...</option>
+		</select>
+		<button class="styledBTNMint" onclick="actionMenu('getDevices')">Refresh</button>
+	</p>
+	<p>Playlist: 
+		<select id="select_playlists">
+			<option id="tmp2">Bitte Warten...</option>
+		</select>
+		<button class=styledBTNMint onclick="actionMenu('getPlaylists')">Refresh</button>
+	</p>
+	<fieldset style="width: 300px;">
+		<legend class="green">Now Playing</legend>
+		<p>Song: <code id="label_nowPlaying">Bitte Warten...</code></p>
+		<p>Künstler: <code id="label_songMader">Bitte Warten...</code></p>
+		<p>Status: <code id="label_songStatus">Bitte Warten...</code></p>
+		<p>Wiedergabe auf: <code id="label_playingDevice">Bitte Warten...</code></p>
+		<p>Bild Auflösung: 
+			<select id="select_img">
+				<option id="tmp1">Bitte Warten...</option>
+			</select>
+		</p>
+		<p><img alt="SONG COVER" id="img_cover" src="/files/img/errorWinXpBTN.png"/></p>
+		<p>
+			<label class=displayFLEX>
+				<span id="label_songProgress">00:00</span> 
+				<input class=flex disabled type=range id="input_songProgress" step=500 min=0 max=0 value=0> 
+				<span id="label_songLength">00:00</span>
+			</label>
+		</p>
+		<p>
+			<label class=displayFLEX>Volume: 
+				<b id="label_volume">Bitte Warten...</b>
+				<input class=flex id=input_volume type=range step=1 min=0 max=100 onchange="GetId('label_volume').innerText=this.value;actionMenu('volume',this.value)">
+			</label>
+		</p>
+		<p>
+			<button class=styledBTN onclick="actionMenu('previous');" title="Zurück"> < </button>
+			<button class=styledBTN onclick="actionMenu('play');" title="Pause"> Play </button>
+			<button class=styledBTN onclick="actionMenu('pause');" title="Pause"> Pause </button>
+			<button class=styledBTN onclick="actionMenu('next');" title="Nexter Song"> > </button>
+		</p>
+	</fieldset>
+	<p>
+		<label>
+			<input checked type="checkbox" onchange="if(this.checked){interval_songUpdate=setInterval(()=>{actionMenu('getSongs');},5000);}else{try{clearInterval(interval_songUpdate)}catch(e){};interval_songUpdate=null}"> 
+			Song automatisch Aktualisieren
+		</label>
+		</p>
+	<button class=styledBTNMint onclick="actionMenu('getSongs');">Song Aktualisieren</button>
+</div>
+
+<button class="styledBTN topRight" onclick="RESET();">RESET WEB PAGE!</button>
+</center>
+<script>
+allowedPath("/Spotify");
+let client_id=localStorage.getItem("SPOTIFY_client_id");
+let client_secret=localStorage.getItem("SPOTIFY_client_secret");
+let access_token=localStorage.getItem("SPOTIFY_accessToken");
+let refresh_token=localStorage.getItem("SPOTIFY_refreshToken");
+let settings=localStorage.getItem("SPOTIFY_settings");
+let last_result=null;
+const URLS={
+	"authorize":	"https://accounts.spotify.com/authorize",
+	"token":		"https://accounts.spotify.com/api/token",
+	"playlists":	"https://api.spotify.com/v1/me/playlists",
+	"devices":		"https://api.spotify.com/v1/me/player/devices",
+	"play":			"https://api.spotify.com/v1/me/player/play",
+	"pause":		"https://api.spotify.com/v1/me/player/pause",
+	"next":			"https://api.spotify.com/v1/me/player/next",
+	"previous":		"https://api.spotify.com/v1/me/player/previous",
+	"player":		"https://api.spotify.com/v1/me/player",
+	"volume": 		"https://api.spotify.com/v1/me/player/volume",
+	"tracks": 		"https://api.spotify.com/v1/playlists/[playListId]/tracks",
+	"nowPlaying":	"https://api.spotify.com/v1/me/player/currently-playing",
+	"shuffle":		"https://api.spotify.com/v1/me/player/shuffle",
+	"redirect_uri": location.protocol+"//"+location.host+"/Spotify"
+}
+let elements_devices=[];
+let elements_playlists=[];
+let elements_coverImages=[];
+let coverimg_size=localStorage.getItem("SPOTIFY_coverimg_size")==null?"300x300":localStorage.getItem("SPOTIFY_coverimg_size");
+let interval_songUpdate=null;//setInterval(()=>{AdvancedFetch('get',URLS.player,CheckResponse,'song');},5000);
+let interval_songTimeUpdate=null;
+
+function RESET(){
+	const items=[
+		"SPOTIFY_client_id",
+		"SPOTIFY_client_secret",
+		"SPOTIFY_accessToken",
+		"SPOTIFY_refreshToken",
+		"SPOTIFY_coverimg_size",
+		"SPOTIFY_settings"
+	]
+	let item=0;
+	for(item of items){
+		localStorage.removeItem(item);
+		con.log("[RESET]["+item+"]: removed!");
+	}
+	location.href="/Spotify";
+}
+function Save(){
+	client_id=GetId("input_clientId").value;
+	client_secret=GetId("input_clientSecret").value;
+	localStorage.setItem("SPOTIFY_client_id",client_id)
+	localStorage.setItem("SPOTIFY_client_secret",client_secret)
+
+	let url=URLS.authorize;
+	url+="?client_id="+client_id;
+	url+="&response_type=code";
+	url+="&redirect_uri="+encodeURI(URLS.redirect_uri);
+	url+="&show_dialog=true";
+	url+="&scope=user-read-private user-read-email user-modify-playback-state user-read-playback-position user-library-read streaming user-read-playback-state user-read-recently-played playlist-read-private";
+	location.href=url;
+}
+function AdvancedFetch(method="get",url,FUNCTION,args=null,body=null){
+	let xml=new XMLHttpRequest();
+	xml.open(method.toUpperCase(),url,true);
+	xml.setRequestHeader("Content-Type","application/json");
+	xml.setRequestHeader("Authorization","Bearer "+access_token);
+	xml.send(body);
+	xml.onload=()=>{
+		FUNCTION(xml,args)
+	}
+}
+function actionMenu(action,arg){
+	action=action.toLowerCase();
+	if(action=="pause"){
+		AdvancedFetch("put",URLS.pause+"?device_id="+GetId("select_devices").value,CheckResponse,"action/pause");
+	}
+	if(action=="play"){
+		AdvancedFetch("put",URLS.play+"?device_id="+GetId("select_devices").value,CheckResponse,"action/play");
+	}
+	else if(action=="getplaylists"){
+		AdvancedFetch("get",URLS.playlists,CheckResponse,"playlists");
+	}
+	else if(action=="getdevices"){
+		AdvancedFetch("get",URLS.devices,CheckResponse,"devices");
+	}
+	else if(action=="getsongs"){
+		AdvancedFetch("get",URLS.player,CheckResponse,"song");
+	}
+	else if(action=="next"){
+		AdvancedFetch("post",URLS.next,CheckResponse,"action/next")
+	}
+	else if(action=="previous"){
+		AdvancedFetch("post",URLS.previous,CheckResponse,"action/previous")
+	}
+	else if(action=="volume"){
+		let volume=arg;
+		if(volume==undefined){
+			//volume=GetId(...).value;
+		}
+		let url=URLS.volume;
+		url+=AddSearch("device_id",GetId("select_devices").value,"?");
+		url+=AddSearch("volume_percent",volume);
+		AdvancedFetch("put",url,CheckResponse,"action/volume");
+	}
+}
+function BodyToToken(body){
+	let xml = new XMLHttpRequest();
+	xml.open("POST",URLS.token,true);
+	xml.setRequestHeader("Content-Type","application/x-www-form-urlencoded");
+	xml.setRequestHeader("Authorization","Basic "+btoa(client_id+":"+client_secret));
+	xml.send(body);
+	xml.onload=function(){
+		let status=Number(this.status);
+		let result=JSON.parse(this.responseText);
+		let result_raw=this.responseText;
+		if(status==200){
+			access_token=result.access_token;
+			refresh_token=result.refresh_token;
+			localStorage.setItem("SPOTIFY_accessToken",result.access_token)
+			if(result.refresh_token!=undefined){
+				localStorage.setItem("SPOTIFY_refreshToken",result.refresh_token)
+			}
+		}else{
+			alert(`ERROR ${status}\n${result_raw}`)
+		}
+	}
+}
+function RefreshAToken(){
+	let body="grant_type=refresh_token";
+	body+="&refresh_token="+localStorage.getItem("SPOTIFY_refreshToken");
+	body+="&client_id="+client_id;
+	BodyToToken(body);
+}
+function CheckResponse(xml,what=null){
+	let status=xml.status;
+	let result=0;
+	try{
+		result=JSON.parse(xml.responseText);
+		last_result=result;
+	}catch(e){
+		if(status==200){
+			con.log("[CheckResponse][WARNING]: result cant parse!");
+		}
+	}
+	let result_raw=xml.responseText;
+	if(status==200){
+		if(what=="devices"){
+			let devices=result.devices;
+			let device=0;
+			for(device of elements_devices){device.remove();}
+			elements_devices=[];
+
+			for(device of devices){
+				//con.log(`Name: '${device.name}', Type: '${device.type}'${device.is_active?", ACTIVE":""}`)
+				let element=CreateElement("option");
+				element.innerText=`${device.name}(${device.type})`;
+				element.value=device.id;
+				if(device.is_active){element.style.color="green";element.selected=true;}AppendChild(element,"select_devices",false);
+				elements_devices.push(element);
+			}
+			try{GetId("tmp0").remove()}catch(e){}
+		}
+		else if(what=="song"){
+			if(interval_songTimeUpdate==null&&result.is_playing){
+				interval_songTimeUpdate=setInterval(update_songTime,500);
+			}
+			GetId("input_songProgress").min=0;
+			GetId("input_songProgress").max=result.item.duration_ms;
+			GetId("input_songProgress").value=result.progress_ms;
+			GetId("label_songProgress").innerText=timeify(result.progress_ms);
+			GetId("label_songLength").innerText=timeify(result.item.duration_ms);
+
+			GetId("label_volume").innerText=result.device.volume_percent;
+			GetId("input_volume").value=result.device.volume_percent;
+
+			GetId("label_playingDevice").innerText=result.device.name;
+			GetId("label_nowPlaying").innerText=result.item.name;
+			GetId("label_songMader").innerText=result.item.artists[0].name;
+			
+			if(!result.is_playing){
+				const status=GetId("label_songStatus");
+				status.innerText="Pausiert";
+				status.style.color="red";
+				try{clearInterval(interval_songTimeUpdate)}catch(e){};
+				interval_songTimeUpdate=null;
+			}
+			else if(result.is_playing){
+				const status=GetId("label_songStatus");
+				status.innerText="Wird abgespielt";
+				status.style.color="green";
+			}
+
+			{//show img;
+				try{GetId("tmp1").remove()}catch(e){}
+				for(element of elements_coverImages){element[2].remove()}
+				elements_coverImages=[];
+				
+				let img=0;
+				for(img of result.item.album.images){
+					let element=CreateElement("option");
+					element.innerText=`${img.height}x${img.width}`
+					AppendChild(element,"select_img",false);
+
+					elements_coverImages.push([`${img.height}x${img.width}`,img.url,element]);
+				}
+				let index=-1;
+				let list=0;
+				let found=false;
+				for(list of elements_coverImages){
+					index+=1;
+					if(list[0]==coverimg_size){
+						found=true;
+						break;
+					}
+				}
+				if(!found){index+=1;}
+
+				if(GetId("img_cover").src!=elements_coverImages[index][1]){
+					preloadImg("img_cover",elements_coverImages[index][1]);
+				}
+				GetId("select_img").value=elements_coverImages[index][0];
+				GetId("select_img").onchange=()=>{
+					let value=GetId("select_img").value;
+					con.log("Change IMG Cover To: "+value);
+					coverimg_size=value;
+					localStorage.setItem("SPOTIFY_coverimg_size",value);
+					for(img of elements_coverImages){
+						if(img[0]===value){
+							preloadImg("img_cover",img[1]);
+						}
+					}
+				}
+			}
+		}
+		else if(what=="playlists"){
+			try{GetId("tmp2").remove()}catch(e){}
+			for(e of elements_playlists){e.remove();};elements_playlists=[];
+
+			let playlist=0;
+			for(playlist of result.items){
+				const element=CreateElement("option");
+				element.innerHTML=overflowRemove(playlist.name,20)+" ("+playlist.tracks.total+")";
+				element.value=playlist.id;
+				AppendChild(element,"select_playlists",false);
+				elements_playlists.push(element);
+			}
+		}
+		else{
+			con.log("[CheckResponse][200][WARNING]: what is not allowed!");
+			con.log("responseText: "+result_raw);
+			con.log("responseJSON: "+result);
+			con.log("status: "+status);
+		}
+	}
+	else if(status==401){
+		con.log("[CheckResponse][401]: Get new access token....");
+		RefreshAToken();
+		setTimeout(DataExist,1000);
+	}
+	else if(status==204){
+		if(what=="song"){
+			GetId("label_nowPlaying").innerText="Kein Song";
+			GetId("label_songMader").innerText="Kein Song";
+			GetId("img_cover").src="/files/img/errorWinXpBTN.png";
+			
+			try{clearInterval(interval_songTimeUpdate);}catch(e){};
+			interval_songTimeUpdate=null;
+			GetId("input_songProgress").min=0;
+			GetId("input_songProgress").max=result.item.duration_ms;
+			GetId("input_songProgress").value=result.progress_ms;
+			GetId("label_songProgress").innerText=timeify(result.progress_ms);
+			GetId("label_songLength").innerText=timeify(result.item.duration_ms);
+
+		}
+	}
+	else if(status==202){
+		if(what.startsWith("action/")){
+			const action=what.substr(7);
+			if(action=="pause"){
+				con.log("[CheckResponse][202][action][pause]: Song paused!");
+				actionMenu("getSongs");
+			}
+			else if(action=="next"){
+				con.log("[CheckResponse][202][action][next]: Next Song is playing");
+				actionMenu("getSongs");
+			}
+			else if(action=="previous"){
+				con.log("[CheckResponse][202][action][previous]: Playing previous track");
+				actionMenu("getSongs");
+			}
+			else if(action=="play"){
+				con.log("[CheckResponse][202][action][play]: Play!");
+				actionMenu("getSongs");
+			}
+			else if(action=="volume"){
+				con.log("[CheckResponse][202][action][volume]: volume changed!")
+				actionMenu("getSongs");
+			}
+		}
+	}
+	else{con.log(`[CheckResponse][WARNING][${status}]: statusCode, responseText not allowed!\nresponseText: ${result_raw}`)}
+}
+function DataExist(){
+	con.log("[DataExist]: DataExist!");
+	actionMenu("getSongs");
+	actionMenu("getDevices");
+	actionMenu("getPlaylists");
+	interval_songUpdate=setInterval(()=>{actionMenu('getSongs');},5000);
+	GetId("div_inputData").className="hidden";
+	GetId("div_crontrols").className="visible";
+}
+function timeify(ms){
+	const numify=(num)=>{return String(num).padStart(2,"0")};
+	let sec=Math.floor(ms/1000); //Milisekunden zu Sekunden;
+
+	let min=Math.floor(sec/60);
+	sec=sec%60;
+
+	let hou=Math.floor(min/60);
+	min=min%60;
+
+	const time=`${hou==0?"":numify(hou)+":"}${numify(min)}:${numify(sec)}`
+	return time;
+}
+function settings_read(object){
+	return settings[object];
+}
+function settings_write(object,data){
+	settings[object]=data;
+	return settings_save();
+}
+function settings_save(){
+	const settings_raw=JSON.stringify(settings);
+	if(settings_raw=="{}"){
+		localStorage.removeItem("SPOTIFY_settings");
+		return false;
+	}else{
+		localStorage.setItem("SPOTIFY_settings",settings_raw);
+		return true;
+	}
+}
+function update_songTime(){
+	const input=GetId("input_songProgress");
+	const label_songProgress=GetId("label_songProgress");
+	const label_songLength=GetId("label_songLength");
+
+	if(input.value==0&&input.max==0){return false;}
+
+	input.value=Number(input.value)+500;
+
+	if(Number(input.value)>=Number(input.max)){
+		input.value=Number(input.max);
+		actionMenu("getSongs");
+	}
+
+	label_songProgress.innerText=timeify(input.value);
+	label_songLength.innerText=timeify(input.max);
+}
+
+{//LOAD SETTINGS;
+	if(settings==null){
+		settings={};
+		settings_save();
+	}
+	else{
+		try{
+			settings=JSON.parse(settings);
+		}catch(e){
+			settings={};
+			settings_save();
+		}
+	}
+}
+
+//GetId("input_clientId").value="a05581bc964e4dc087149d83811a1495";
+//GetId("input_clientSecret").value="73dca0f9360d4813ad53233248227cf7";
+
+id_tmp=localStorage.getItem("SPOTIFY_client_id");
+secret_tmp=localStorage.getItem("SPOTIFY_client_secret");
+if(id_tmp!=null){
+	client_id=id_tmp;
+	client_secret=secret_tmp;
+	GetId("input_clientId").value=client_id;
+	GetId("input_clientSecret").value=client_secret;
+}
+
+if(location.search.length>0){
+	let code=location.search.substr(6);
+	ChangeURL(URLS.redirect_uri.split("/")[URLS.redirect_uri.split("/").length-1]);
+	let body="grant_type=authorization_code";
+	body+="&code="+code; 
+	body+="&redirect_uri="+encodeURI(URLS.redirect_uri);
+	body+="&client_id="+client_id;
+	body+="&client_secret="+client_secret;
+	BodyToToken(body);
+	setTimeout(DataExist,1000);
+}else if(access_token!=null&&refresh_token!=null){
+	DataExist();
+}
+
+</script>
+</body>
+</html>
